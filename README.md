@@ -36,6 +36,45 @@ model that cross-checks the Verilog instruction by instruction.
 | I/O | Memory-mapped ports: read `0xFE` for input pins, write `0xFF` for output pins |
 | Implementation | `src/tiny_cpu.v` (282 lines), `src/tt_tiny8.v` TinyTapeout wrapper (43 lines) |
 
+### Datapath — fetch, decode, execute
+
+Every instruction takes two clocks: FETCH, then EXECUTE.
+
+```mermaid
+flowchart LR
+    Fetch["FETCH — IR gets ROM[PC], PC gets PC + 1"] --> Decode["DECODE — opcode [15:12] + extension [11:8] become control signals"]
+    Decode --> Execute["EXECUTE — ALU, memory, or branch"]
+    Execute --> Fetch
+```
+
+```mermaid
+flowchart TB
+    PC["PC — 16-bit program counter"] --> ROM["ROM — 64K words"]
+    ROM -->|"instruction [15:0]"| IR["Instruction register"]
+    IR -->|"opcode [15:12]"| DEC["Decoder"]
+    IR -->|"extension [11:8]"| DEC
+    IR -->|"operand [7:0]"| OP["Operand mux"]
+    DEC -->|"control signals"| ALU["ALU — ADD, SUB, AND, OR, XOR, NOT, SHL, SHR, MUL"]
+    DEC -->|"control signals"| CTRL["Control — branches, CALL, RET, HLT"]
+    A["Register A — accumulator"] --> ALU
+    B["Register B — page register, counter"] --> ALU
+    ALU -->|"result"| A
+    ALU -->|"Z and C flags"| FLAGS["Flags — Z, C"]
+    FLAGS --> CTRL
+    OP --> RAM["RAM — 64KB"]
+    A -->|"STA"| RAM
+    RAM -->|"LDA"| A
+    B -->|"page register — high byte of address"| RAM
+    RAM -->|"memory-mapped I/O"| IO["Ports — read 0xFE, write 0xFF"]
+    SP["SP — stack pointer, resets to 0xFE"] --> RAM
+    CTRL -->|"CALL pushes PC, RET pops PC"| SP
+    CTRL --> PC
+```
+
+Harvard memory: instructions come from ROM, data lives in RAM, and the
+stack grows down from the top of RAM. Register B doubles as the page
+register, so `LDAX`/`STAX` and the far jumps reach any 64KB page.
+
 Design rules that fall out of the flag behaviour: Z is set by ALU/load
 results only. STA, JMP, JZ, JNZ, CALL, RET, HLT and NOP leave it alone,
 which is what makes `ADD` + `JZ`/`JNZ` loops work. Keep program data below
